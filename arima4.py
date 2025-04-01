@@ -1,65 +1,103 @@
+# Load all libraries
+import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, mean_absolute_error, mean_squared_error
 import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn import tree
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.tree import DecisionTreeRegressor
+from sklearn import metrics
 from statsmodels.tsa.stattools import adfuller
-from statsmodels.stats.diagnostic import acorr_ljungbox
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
 from statsmodels.tsa.arima.model import ARIMA
-from sklearn.metrics import mean_absolute_error, mean_squared_error
-import numpy as np
-import itertools
 from math import sqrt
+import itertools
 
-# Load the dataset
-df = pd.read_csv('Walmart.csv')
+# Load train dataset
+df = pd.read_csv('train.csv')
+# Load features dataset and join it with train data
+features_df = pd.read_csv('features.csv')
+df = pd.merge(df, features_df.drop(['IsHoliday'], axis = 1), how = 'left', on = ['Store', 'Date'])
+# Load store dataset and join with above data
+stores_df = pd.read_csv('stores.csv')
+df = pd.merge(df, stores_df, how = 'left', on = ['Store'])
 
-# Display the first few rows of the dataframe to ensure it loaded correctly
-df.info()
+# Filter data for department 92 of store 20
+df = df[(df['Store'] == 20) & (df['Dept'] == 92)]
 
-# Function to parse dates with different formats
-def parse_dates(date):
-    for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%m/%d/%Y", "%Y-%m-%d"):
-        try:
-            return pd.to_datetime(date, format=fmt)
-        except ValueError:
-            pass
-    return pd.NaT
+df.shape
+df.head().to_csv('filtered_data_head.csv')
 
-# Apply the function to the Date column
-df['Date'] = df['Date'].apply(parse_dates)
+# Let's explore variables, their data types, and total non-null values
+df_info = df.info()
+with open('df_info.txt', 'w') as f:
+    f.write(str(df_info))
 
-# Check for missing values again
-missing_values = df.isnull().sum()
-with open('missing_values.txt', 'w') as f:
-    f.write(str(missing_values))
+# Summary statistics of the dataset
+df_summary = df[['Weekly_Sales', 'Temperature', 'CPI', 'Size']].describe()
+df_summary.to_csv('data_summary.csv')
 
-df.describe().to_csv('data_summary.csv')
+print('Min Date in Data is - {}'.format(df['Date'].min()))
+print('Max Date in Data is - {}'.format(df['Date'].max()))
 
-# Calculate the correlation matrix
-correlation_matrix = df.corr()
-
-# Extract the correlation with Weekly_Sales
-correlation_with_sales = correlation_matrix["Weekly_Sales"].sort_values(ascending=False)
-with open('correlation_with_sales.txt', 'w') as f:
-    f.write(str(correlation_with_sales))
-
-# Set the style for the plots
-sns.set(style="whitegrid")
-
-# List of variables to plot against Weekly_Sales
-variables = ['Holiday_Flag', 'Fuel_Price', 'Temperature', 'CPI', 'Unemployment', 'Store']
-
-# Create a scatter plot for each variable against Weekly_Sales
-plt.figure(figsize=(15, 10))
-for i, var in enumerate(variables, start=1):
-    plt.subplot(2, 3, i)
-    sns.scatterplot(data=df, x=var, y='Weekly_Sales', alpha=0.5)
-    plt.title(f'Weekly Sales vs {var}')
-    plt.xlabel(var)
-    plt.ylabel('Weekly Sales')
-plt.tight_layout()
-plt.savefig('scatter_plots.png')
+temp = pd.DataFrame(df.groupby('Type')['Store'].nunique()).reset_index()
+print(temp)
+plt.figure(figsize = (12,6))
+plt.pie(temp['Store'], labels = temp['Type'], autopct = '%.0f%%')
+plt.savefig('store_type_distribution.png')
 plt.close()
+
+# Size distribution of stores for each store type
+plt.figure(figsize = (12,8))
+sns.boxplot(x = 'Type', y ='Size', data = df, showfliers = False)
+plt.savefig('size_distribution.png')
+plt.close()
+
+# Distribution of weekly sales based on store type
+plt.figure(figsize = (12,8))
+sns.boxplot(x = 'Type', y ='Weekly_Sales', data = df, showfliers = False)
+plt.savefig('weekly_sales_distribution.png')
+plt.close()
+
+# Impact of holidays on weekly sales
+plt.figure(figsize = (12,8))
+sns.boxplot(x = 'IsHoliday', y ='Weekly_Sales', data = df, showfliers = False)
+plt.savefig('holiday_impact.png')
+plt.close()
+
+feature_cols = ['Weekly_Sales', 'Temperature', 'Fuel_Price', 'MarkDown1', 'MarkDown2', 'MarkDown3', 'MarkDown4',
+       'MarkDown5', 'CPI', 'Unemployment', 'Size']
+plt.figure(figsize = (18,12))
+sns.heatmap(df[feature_cols].corr(), annot = True)
+plt.savefig('correlation_heatmap.png')
+plt.close()
+
+# Impute NULL values
+df['MarkDown1'] = df['MarkDown1'].fillna(0)
+df['MarkDown2'] = df['MarkDown2'].fillna(0)
+df['MarkDown3'] = df['MarkDown3'].fillna(0)
+df['MarkDown4'] = df['MarkDown4'].fillna(0)
+df['MarkDown5'] = df['MarkDown5'].fillna(0)
+
+# Create year, month, and date
+df['Date'] = pd.to_datetime(df['Date'])
+df['month_date'] = df['Date'].apply(lambda i : i.month)
+df['day_date'] = df['Date'].apply(lambda i : i.day)
+df['year_date'] = df['Date'].apply(lambda i : i.year)
+
+# One hot encoding
+cols_to_encode = ['Type', 'IsHoliday']
+df = pd.get_dummies(data = df, columns = cols_to_encode, drop_first = True)
+
+# Standard Scaler
+standard_scaler = StandardScaler()
+feature_cols = ['Temperature', 'Fuel_Price', 'MarkDown1','MarkDown2', 'MarkDown3', 'MarkDown4', 'MarkDown5', 'CPI', 'Unemployment', 'Size']
+transformed_features = standard_scaler.fit_transform(df[feature_cols])
+
+df[feature_cols] = transformed_features
 
 # Time Series Analysis
 sales_data = df.groupby('Date')['Weekly_Sales'].sum().sort_index()
