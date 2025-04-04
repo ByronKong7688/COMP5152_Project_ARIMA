@@ -1,0 +1,6 @@
+Performance Metrics for Aggregated Forecast (Store 20):
+MSE: 41.13
+RMSE: 6.41
+MAE: 5.93
+MAPE: 632.66%
+R²: -3.5293
